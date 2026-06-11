@@ -369,6 +369,12 @@ impl From<Diversity> for f64 {
     }
 }
 
+impl std::fmt::Display for Diversity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub fn diversity(ts: &TreeSequence) -> Result<Diversity, StatsError> {
     single_site_statistic(ts.sample_nodes().iter().cloned(), Diversity::default(), ts)
 }

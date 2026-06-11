@@ -29,7 +29,7 @@ fn main() {
     println!("I/O time: {}", post_load - pre_load);
     summarize_treeseq(&ts);
     let pre_div = Utc::now();
-    let diversity = diversity(&ts);
+    let diversity = diversity(&ts).unwrap();
     let post_div = Utc::now();
-    println!("{diversity:?} {}", post_div - pre_div);
+    println!("{diversity} {}", post_div - pre_div);
 }
