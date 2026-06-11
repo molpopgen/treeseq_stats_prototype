@@ -359,7 +359,7 @@ impl SingleSiteStatistic for Diversity {
     fn update(&mut self, num_descendants: i64, num_sampled_genomes: i64) {
         let nd = num_descendants as f64;
         let n = num_sampled_genomes as f64;
-        self.0 += (n * (nd - n)) / (n * (n - 1.))
+        self.0 += (n * (n - nd)) / (n * (n - 1.))
     }
 }
 
