@@ -327,8 +327,6 @@ pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>
     statistic: S,
     ts: &TreeSequence,
 ) -> Result<S, StatsError> {
-    let mutation_parent = ts.tables().mutations().parent_column();
-    let num_edges = ts.edges().num_rows().as_usize();
     let (tree_data, num_sampled_genomes) = setup_samples(ts, samples)?;
 
     let mut sample_sets = SingleSampleSet {
