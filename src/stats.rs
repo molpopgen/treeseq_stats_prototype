@@ -350,3 +350,25 @@ pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>
 
     Ok(sample_sets.statistic)
 }
+
+#[repr(transparent)]
+#[derive(Default, Debug, Copy, Clone)]
+pub struct Diversity(f64);
+
+impl SingleSiteStatistic for Diversity {
+    fn update(&mut self, num_descendants: i64, num_sampled_genomes: i64) {
+        let nd = num_descendants as f64;
+        let n = num_sampled_genomes as f64;
+        self.0 += n * (nd - n) / (n * (n - 1.))
+    }
+}
+
+impl From<Diversity> for f64 {
+    fn from(value: Diversity) -> Self {
+        value.0
+    }
+}
+
+pub fn diversity(ts: &TreeSequence) -> Result<Diversity, StatsError> {
+    single_site_statistic(ts.sample_nodes().iter().cloned(), Diversity::default(), ts)
+}
