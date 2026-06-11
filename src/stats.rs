@@ -133,19 +133,17 @@ trait SampleSets<'s> {
     fn update_statistic(&mut self) -> Result<(), StatsError>;
 }
 
-struct SingleSampleSet<'ts, I: Iterator<Item = tskit::SiteRef<'ts>>, S: SingleSiteStatistic> {
+struct SingleSampleSet<'ts, S: SingleSiteStatistic> {
     tree_data: TreeData,
     num_sampled_genomes: i64,
     alleles_at_site: Vec<&'ts [u8]>,
     allele_counts: Vec<i64>,
-    site_iter: I,
-    current_site: Option<tskit::SiteRef<'ts>>,
+    current_site_index: usize,
+    ts: &'ts TreeSequence,
     statistic: S,
 }
 
-impl<'s, I: Iterator<Item = tskit::SiteRef<'s>>, S: SingleSiteStatistic> SampleSets<'s>
-    for SingleSampleSet<'s, I, S>
-{
+impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
     fn process_input_edge(&mut self, parent: usize, child: usize) {
         self.tree_data.process_input_edge(parent, child);
     }
@@ -288,8 +286,8 @@ where
     Ok(num_sampled_genomes)
 }
 
-impl<'ts, I: Iterator<Item = tskit::SiteRef<'ts>>, S: SingleSiteStatistic>
-    super::incremental_algorithm::IncrementalAlgorithm for SingleSampleSet<'ts, I, S>
+impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgorithm
+    for SingleSampleSet<'ts, S>
 {
     fn process_input_edge(&mut self, parent: NodeId, child: NodeId) {
         self.tree_data
@@ -299,8 +297,14 @@ impl<'ts, I: Iterator<Item = tskit::SiteRef<'ts>>, S: SingleSiteStatistic>
         self.tree_data
             .process_output_edge(parent.as_usize(), child.as_usize());
     }
+
     fn process_interval(&mut self, left: Position, right: Position) {
-        while let Some(site_ref) = self.current_site.as_ref() {
+        for site_ref in self
+            .ts
+            .site_iter()
+            .skip(self.current_site_index)
+            .take_while(|site| site.position() < right)
+        {
             if site_ref.position() < right {
                 self.initialize_site(ts, site_ref.id()).unwrap();
 
