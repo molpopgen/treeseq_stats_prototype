@@ -138,7 +138,7 @@ struct SingleSampleSet<'ts, S: SingleSiteStatistic> {
     num_sampled_genomes: i64,
     alleles_at_site: Vec<&'ts [u8]>,
     allele_counts: Vec<i64>,
-    satistic: S,
+    statistic: S,
 }
 
 impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
@@ -247,6 +247,16 @@ where
     Ok(())
 }
 
+fn setup_samples<N>(ts: &tskit::TreeSequence, samples: N) -> Result<(TreeData, i32), StatsError>
+where
+    N: Iterator<Item = tskit::NodeId>,
+{
+    let mut tree_data = TreeData::new(ts);
+    let num_nodes = ts.nodes().num_rows().as_usize();
+    let num_sampled_genomes = setup_samples_from_node_ids(num_nodes, samples, &mut tree_data)?;
+    Ok((tree_data, num_sampled_genomes))
+}
+
 fn setup_samples_from_node_ids<I>(
     num_nodes: usize,
     iter: I,
@@ -274,11 +284,35 @@ where
     Ok(num_sampled_genomes)
 }
 
+impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgorithm
+    for SingleSampleSet<'ts, S>
+{
+    fn process_input_edge(&mut self, parent: NodeId, child: NodeId) {
+        todo!()
+    }
+    fn process_output_edge(&mut self, parent: NodeId, child: NodeId) {
+        todo!()
+    }
+    fn process_interval(&mut self, left: Position, right: Position) {
+        todo!()
+    }
+}
+
 pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>(
     samples: N,
     statistic: S,
     ts: &TreeSequence,
-) {
+) -> Result<S, StatsError> {
     let mutation_parent = ts.tables().mutations().parent_column();
     let num_edges = ts.edges().num_rows().as_usize();
+    let (tree_data, num_sampled_genomes) = setup_samples(ts, samples)?;
+    let sample_sets = SingleSampleSet {
+        tree_data,
+        num_sampled_genomes: num_sampled_genomes as i64,
+        alleles_at_site: vec![],
+        allele_counts: vec![],
+        statistic,
+    };
+
+    Ok(sample_sets.statistic)
 }
