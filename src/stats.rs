@@ -295,7 +295,7 @@ impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgor
             .process_output_edge(parent.as_usize(), child.as_usize());
     }
 
-    fn process_interval(&mut self, left: Position, right: Position) {
+    fn process_interval(&mut self, _left: Position, right: Position) {
         for site_ref in self
             .ts
             .site_iter()
@@ -310,9 +310,11 @@ impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgor
                 // allowing the propagation of already-mutated
                 // nodes up the tree.
                 for mutation in site_ref.mutation_iter().rev() {
-                    self.process_mutation(&mutation_parent, mutation).unwrap();
+                    self.process_mutation(&self.ts.mutations().parent_column(), mutation)
+                        .unwrap();
                 }
                 self.update_statistic().unwrap();
+                self.current_site_index += 1;
             } else {
                 break;
             }
@@ -328,16 +330,15 @@ pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>
     let mutation_parent = ts.tables().mutations().parent_column();
     let num_edges = ts.edges().num_rows().as_usize();
     let (tree_data, num_sampled_genomes) = setup_samples(ts, samples)?;
-    let mut site_iter = ts.site_iter();
-    let current_site = site_iter.next();
+
     let mut sample_sets = SingleSampleSet {
+        ts,
         tree_data,
         num_sampled_genomes: num_sampled_genomes as i64,
         alleles_at_site: vec![],
         allele_counts: vec![],
-        site_iter,
-        current_site,
         statistic,
+        current_site_index: 0,
     };
 
     super::incremental_algorithm::incremental_algorithm(
