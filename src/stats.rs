@@ -358,8 +358,9 @@ impl SingleSiteStatistic for Diversity {
     fn update(&mut self, allele_counts: &[i64], num_sampled_genomes: i64) {
         let n = num_sampled_genomes as f64;
         let denom = n * (n - 1.);
-        let num_homozygous_pairs: i64 = allele_counts.iter().map(|count| count * (count - 1)).sum();
-        self.0 += 1.0 - (num_homozygous_pairs as f64) / denom;
+        for &c in allele_counts {
+            self.0 += (c as f64) * (n - c as f64) / denom
+        }
     }
 }
 
