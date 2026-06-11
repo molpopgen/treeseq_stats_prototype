@@ -300,7 +300,23 @@ impl<'ts, I: Iterator<Item = tskit::SiteRef<'ts>>, S: SingleSiteStatistic>
             .process_output_edge(parent.as_usize(), child.as_usize());
     }
     fn process_interval(&mut self, left: Position, right: Position) {
-        todo!()
+        while let Some(site_ref) = self.current_site.as_ref() {
+            if site_ref.position() < right {
+                sample_sets.initialize_site(ts, site_ref.id())?;
+
+                // NOTE: we process in reverse order because
+                // more recent mutations get processed first,
+                // allowing the propagation of already-mutated
+                // nodes up the tree.
+                for mutation in site_ref.mutation_iter().rev() {
+                    sample_sets.process_mutation(ts, &mutation_parent, mutation)?;
+                }
+                sample_sets.update_allele_counts()?;
+                self.current_site = self.site_iter.next();
+            } else {
+                break;
+            }
+        }
     }
 }
 
