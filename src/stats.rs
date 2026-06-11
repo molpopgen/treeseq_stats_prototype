@@ -7,7 +7,7 @@ use tskit::TableColumn;
 use tskit::TreeSequence;
 
 pub trait SingleSiteStatistic {
-    fn update(&mut self, num_descendants: i64);
+    fn update(&mut self, num_descendants: i64, num_sampled_genomes: i64);
 }
 
 #[derive(Debug)]
@@ -246,7 +246,7 @@ where
     Ok(())
 }
 
-fn setup_samples<N>(ts: &tskit::TreeSequence, samples: N) -> Result<(TreeData, i32), StatsError>
+fn setup_samples<N>(ts: &tskit::TreeSequence, samples: N) -> Result<(TreeData, i64), StatsError>
 where
     N: Iterator<Item = tskit::NodeId>,
 {
@@ -260,11 +260,11 @@ fn setup_samples_from_node_ids<I>(
     num_nodes: usize,
     iter: I,
     td: &mut TreeData,
-) -> Result<i32, StatsError>
+) -> Result<i64, StatsError>
 where
     I: Iterator<Item = NodeId>,
 {
-    let mut num_sampled_genomes = 0;
+    let mut num_sampled_genomes = 0_i64;
     for node_id in iter {
         // Should be an Err condition!
         if node_id == NodeId::NULL {
@@ -332,7 +332,7 @@ pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>
     let mut sample_sets = SingleSampleSet {
         ts,
         tree_data,
-        num_sampled_genomes: num_sampled_genomes as i64,
+        num_sampled_genomes,
         alleles_at_site: vec![],
         allele_counts: vec![],
         statistic,
