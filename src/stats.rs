@@ -7,7 +7,7 @@ use tskit::TableColumn;
 use tskit::TreeSequence;
 
 pub trait SingleSiteStatistic {
-    fn update(&mut self, num_descendants: i64, num_sampled_genomes: i64);
+    fn update(&mut self, allele_counts: &[i64], num_sampled_genomes: i64);
 }
 
 #[derive(Debug)]
@@ -203,9 +203,8 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
             > 1
         {
             // NOTE: this ASSUME an UNPOLARIZED statistic
-            self.allele_counts
-                .iter()
-                .for_each(|&c| self.statistic.update(c, self.num_sampled_genomes));
+            self.statistic
+                .update(&self.allele_counts, self.num_sampled_genomes);
         }
         Ok(())
     }
@@ -356,10 +355,11 @@ pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>
 pub struct Diversity(f64);
 
 impl SingleSiteStatistic for Diversity {
-    fn update(&mut self, num_descendants: i64, num_sampled_genomes: i64) {
-        let nd = num_descendants as f64;
+    fn update(&mut self, allele_counts: &[i64], num_sampled_genomes: i64) {
         let n = num_sampled_genomes as f64;
-        self.0 += (n * (n - nd)) / (n * (n - 1.))
+        let denom = n * (n - 1.);
+        let num_homozygous_pairs: i64 = allele_counts.iter().map(|count| count * (count - 1)).sum();
+        self.0 += 1.0 - (num_homozygous_pairs as f64) / denom;
     }
 }
 
