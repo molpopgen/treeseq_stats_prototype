@@ -7,7 +7,7 @@ use tskit::TableColumn;
 use tskit::TreeSequence;
 
 pub trait SingleSiteStatistic {
-    fn update(&mut self, num_descendants: i64);
+    fn update(&mut self, allele_counts: &[i64], num_sampled_genomes: i64);
 }
 
 #[derive(Debug)]
@@ -120,14 +120,12 @@ trait SampleSets<'s> {
     where
         'ts: 's,
         's: 'a;
-    fn process_mutation<'ts, 'a, M>(
+    fn process_mutation<'a, M>(
         &'a mut self,
-        ts: &'ts TreeSequence,
         mutation_parent: &'a M,
         mutation: MutationRef<'a>,
     ) -> Result<(), StatsError>
     where
-        'ts: 's,
         's: 'a,
         M: TableColumn<MutationId, MutationId>;
     fn update_statistic(&mut self) -> Result<(), StatsError>;
@@ -138,7 +136,9 @@ struct SingleSampleSet<'ts, S: SingleSiteStatistic> {
     num_sampled_genomes: i64,
     alleles_at_site: Vec<&'ts [u8]>,
     allele_counts: Vec<i64>,
-    satistic: S,
+    current_site_index: usize,
+    ts: &'ts TreeSequence,
+    statistic: S,
 }
 
 impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
@@ -149,14 +149,12 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
         self.tree_data.process_output_edge(parent, child);
     }
 
-    fn process_mutation<'ts, 'a, M>(
+    fn process_mutation<'a, M>(
         &'a mut self,
-        ts: &'ts TreeSequence,
         mutation_parent: &'a M,
         mutation: MutationRef<'a>,
     ) -> Result<(), StatsError>
     where
-        'ts: 's,
         's: 'a,
         M: TableColumn<MutationId, MutationId>,
     {
@@ -165,7 +163,8 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
         if num_samples_inheriting_derived_state > 0
             && num_samples_inheriting_derived_state < self.num_sampled_genomes
         {
-            let derived_state = *ts
+            let derived_state = *self
+                .ts
                 .mutations()
                 .derived_state(mutation.id())
                 .as_ref()
@@ -203,7 +202,9 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
             .count()
             > 1
         {
-            todo!()
+            // NOTE: this ASSUME an UNPOLARIZED statistic
+            self.statistic
+                .update(&self.allele_counts, self.num_sampled_genomes);
         }
         Ok(())
     }
@@ -247,15 +248,25 @@ where
     Ok(())
 }
 
+fn setup_samples<N>(ts: &tskit::TreeSequence, samples: N) -> Result<(TreeData, i64), StatsError>
+where
+    N: Iterator<Item = tskit::NodeId>,
+{
+    let mut tree_data = TreeData::new(ts);
+    let num_nodes = ts.nodes().num_rows().as_usize();
+    let num_sampled_genomes = setup_samples_from_node_ids(num_nodes, samples, &mut tree_data)?;
+    Ok((tree_data, num_sampled_genomes))
+}
+
 fn setup_samples_from_node_ids<I>(
     num_nodes: usize,
     iter: I,
     td: &mut TreeData,
-) -> Result<i32, StatsError>
+) -> Result<i64, StatsError>
 where
     I: Iterator<Item = NodeId>,
 {
-    let mut num_sampled_genomes = 0;
+    let mut num_sampled_genomes = 0_i64;
     for node_id in iter {
         // Should be an Err condition!
         if node_id == NodeId::NULL {
@@ -274,11 +285,99 @@ where
     Ok(num_sampled_genomes)
 }
 
+impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgorithm
+    for SingleSampleSet<'ts, S>
+{
+    fn process_input_edge(&mut self, parent: NodeId, child: NodeId) {
+        self.tree_data
+            .process_input_edge(parent.as_usize(), child.as_usize());
+    }
+    fn process_output_edge(&mut self, parent: NodeId, child: NodeId) {
+        self.tree_data
+            .process_output_edge(parent.as_usize(), child.as_usize());
+    }
+
+    fn process_interval(&mut self, _left: Position, right: Position) {
+        for site_ref in self
+            .ts
+            .site_iter()
+            .skip(self.current_site_index)
+            .take_while(|site| site.position() < right)
+        {
+            if site_ref.position() < right {
+                self.initialize_site(self.ts, site_ref.id()).unwrap();
+
+                // NOTE: we process in reverse order because
+                // more recent mutations get processed first,
+                // allowing the propagation of already-mutated
+                // nodes up the tree.
+                for mutation in site_ref.mutation_iter().rev() {
+                    self.process_mutation(&self.ts.mutations().parent_column(), mutation)
+                        .unwrap();
+                }
+                self.update_statistic().unwrap();
+                self.current_site_index += 1;
+            } else {
+                break;
+            }
+        }
+    }
+}
+
 pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>(
     samples: N,
     statistic: S,
     ts: &TreeSequence,
-) {
-    let mutation_parent = ts.tables().mutations().parent_column();
-    let num_edges = ts.edges().num_rows().as_usize();
+) -> Result<S, StatsError> {
+    let (tree_data, num_sampled_genomes) = setup_samples(ts, samples)?;
+
+    let mut sample_sets = SingleSampleSet {
+        ts,
+        tree_data,
+        num_sampled_genomes,
+        alleles_at_site: vec![],
+        allele_counts: vec![],
+        statistic,
+        current_site_index: 0,
+    };
+
+    super::incremental_algorithm::incremental_algorithm(
+        ts,
+        super::incremental_algorithm::IncrementalAlgorithmOptions::default(),
+        &mut sample_sets,
+    );
+
+    Ok(sample_sets.statistic)
+}
+
+#[repr(transparent)]
+#[derive(Default, Debug, Copy, Clone)]
+pub struct Diversity(f64);
+
+impl SingleSiteStatistic for Diversity {
+    fn update(&mut self, allele_counts: &[i64], num_sampled_genomes: i64) {
+        let n = num_sampled_genomes as f64;
+        let denom = n * (n - 1.);
+        let temp = allele_counts
+            .iter()
+            .map(|&c| (c as f64) * (n - c as f64))
+            .sum::<f64>();
+        self.0 += temp / denom
+    }
+}
+
+impl From<Diversity> for f64 {
+    fn from(value: Diversity) -> Self {
+        value.0
+    }
+}
+
+impl std::fmt::Display for Diversity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+pub fn diversity(ts: &TreeSequence) -> Result<Diversity, StatsError> {
+    single_site_statistic(ts.sample_nodes().iter().cloned(), Diversity::default(), ts)
 }
