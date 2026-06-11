@@ -202,7 +202,10 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
             .count()
             > 1
         {
-            todo!()
+            // NOTE: this ASSUME an UNPOLARIZED statistic
+            self.allele_counts
+                .iter()
+                .for_each(|&c| self.statistic.update(c, self.num_sampled_genomes));
         }
         Ok(())
     }
