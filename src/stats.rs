@@ -133,15 +133,19 @@ trait SampleSets<'s> {
     fn update_statistic(&mut self) -> Result<(), StatsError>;
 }
 
-struct SingleSampleSet<'ts, S: SingleSiteStatistic> {
+struct SingleSampleSet<'ts, I: Iterator<Item = tskit::SiteRef<'ts>>, S: SingleSiteStatistic> {
     tree_data: TreeData,
     num_sampled_genomes: i64,
     alleles_at_site: Vec<&'ts [u8]>,
     allele_counts: Vec<i64>,
+    site_iter: I,
+    current_site: Option<tskit::SiteRef<'ts>>,
     statistic: S,
 }
 
-impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
+impl<'s, I: Iterator<Item = tskit::SiteRef<'s>>, S: SingleSiteStatistic> SampleSets<'s>
+    for SingleSampleSet<'s, I, S>
+{
     fn process_input_edge(&mut self, parent: usize, child: usize) {
         self.tree_data.process_input_edge(parent, child);
     }
@@ -284,14 +288,16 @@ where
     Ok(num_sampled_genomes)
 }
 
-impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgorithm
-    for SingleSampleSet<'ts, S>
+impl<'ts, I: Iterator<Item = tskit::SiteRef<'ts>>, S: SingleSiteStatistic>
+    super::incremental_algorithm::IncrementalAlgorithm for SingleSampleSet<'ts, I, S>
 {
     fn process_input_edge(&mut self, parent: NodeId, child: NodeId) {
-        todo!()
+        self.tree_data
+            .process_input_edge(parent.as_usize(), child.as_usize());
     }
     fn process_output_edge(&mut self, parent: NodeId, child: NodeId) {
-        todo!()
+        self.tree_data
+            .process_output_edge(parent.as_usize(), child.as_usize());
     }
     fn process_interval(&mut self, left: Position, right: Position) {
         todo!()
@@ -306,11 +312,15 @@ pub fn single_site_statistic<N: Iterator<Item = NodeId>, S: SingleSiteStatistic>
     let mutation_parent = ts.tables().mutations().parent_column();
     let num_edges = ts.edges().num_rows().as_usize();
     let (tree_data, num_sampled_genomes) = setup_samples(ts, samples)?;
+    let mut site_iter = ts.site_iter();
+    let current_site = site_iter.next();
     let mut sample_sets = SingleSampleSet {
         tree_data,
         num_sampled_genomes: num_sampled_genomes as i64,
         alleles_at_site: vec![],
         allele_counts: vec![],
+        site_iter,
+        current_site,
         statistic,
     };
 
