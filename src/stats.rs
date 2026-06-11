@@ -120,14 +120,12 @@ trait SampleSets<'s> {
     where
         'ts: 's,
         's: 'a;
-    fn process_mutation<'ts, 'a, M>(
+    fn process_mutation<'a, M>(
         &'a mut self,
-        ts: &'ts TreeSequence,
         mutation_parent: &'a M,
         mutation: MutationRef<'a>,
     ) -> Result<(), StatsError>
     where
-        'ts: 's,
         's: 'a,
         M: TableColumn<MutationId, MutationId>;
     fn update_statistic(&mut self) -> Result<(), StatsError>;
@@ -151,14 +149,12 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
         self.tree_data.process_output_edge(parent, child);
     }
 
-    fn process_mutation<'ts, 'a, M>(
+    fn process_mutation<'a, M>(
         &'a mut self,
-        ts: &'ts TreeSequence,
         mutation_parent: &'a M,
         mutation: MutationRef<'a>,
     ) -> Result<(), StatsError>
     where
-        'ts: 's,
         's: 'a,
         M: TableColumn<MutationId, MutationId>,
     {
@@ -167,7 +163,8 @@ impl<'s, S: SingleSiteStatistic> SampleSets<'s> for SingleSampleSet<'s, S> {
         if num_samples_inheriting_derived_state > 0
             && num_samples_inheriting_derived_state < self.num_sampled_genomes
         {
-            let derived_state = *ts
+            let derived_state = *self
+                .ts
                 .mutations()
                 .derived_state(mutation.id())
                 .as_ref()
@@ -306,17 +303,16 @@ impl<'ts, S: SingleSiteStatistic> super::incremental_algorithm::IncrementalAlgor
             .take_while(|site| site.position() < right)
         {
             if site_ref.position() < right {
-                self.initialize_site(ts, site_ref.id()).unwrap();
+                self.initialize_site(self.ts, site_ref.id()).unwrap();
 
                 // NOTE: we process in reverse order because
                 // more recent mutations get processed first,
                 // allowing the propagation of already-mutated
                 // nodes up the tree.
                 for mutation in site_ref.mutation_iter().rev() {
-                    self.process_mutation(ts, &mutation_parent, mutation)?;
+                    self.process_mutation(&mutation_parent, mutation).unwrap();
                 }
-                self.update_allele_counts()?;
-                self.current_site = self.site_iter.next();
+                self.update_statistic().unwrap();
             } else {
                 break;
             }
